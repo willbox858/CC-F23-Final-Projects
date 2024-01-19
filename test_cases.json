@@ -1,0 +1,12 @@
+{
+    "tests": [
+	{"fullname": "MovementTest.OctreeCreateTest",
+         "points": 8},
+	{"fullname": "MovementTest.OctreeNodeTest",
+	 "points": 8},
+	{"fullname": "MovementTest.OctreeObjectsTest",
+         "points": 8},
+	{"fullname": "SceneTests.SceneTest",
+         "points": 8}
+    ]
+}

@@ -1,0 +1,109 @@
+// Each #kernel tells which function to compile; you can have many kernels
+//#pragma kernel CSMain
+#pragma kernel CSSpaceFillingCurve
+#pragma kernel CSInterleaveBits
+
+//A d dimensional hypercube bisected k times recursively along each dimension results in 2^(d*k) non-overlapping hypercells of equal size 
+float _SpaceLength; //euclidian length of one of the sides of the space being decomposed
+int K = 2; //The number of times the space will be recursively bisected
+
+uint _NumberOfParticles;
+
+struct Particle
+{
+    float3 mPosition;
+    float3 mVelocity;
+    uint mMortonNumber;
+};
+
+RWStructuredBuffer<float3> _Positions : register(u0); //Positions being mapped onto the Space Filling Curve
+RWStructuredBuffer<int3> _SFCPoints : register(u1); //Points along the space filling curve
+RWStructuredBuffer<uint> _InterleavedPoints : register(u2); //SFC points swizzled together
+
+//Converts positions into points along the Space-Filling-Curve
+[numthreads(8,8,1)]
+void CSSpaceFillingCurve(uint3 id : SV_DispatchThreadID)
+{
+    int coordinate = 8 * id.x + id.y;
+    
+    if ((uint) coordinate > _NumberOfParticles) return;
+    
+    float3 p = _Positions[coordinate]; //a point in our space
+    
+    //translate the x,y,z components of our float into integers
+    int xInt = pow(2, K) * p.x / _SpaceLength;
+    int yInt = pow(2, K) * p.y / _SpaceLength;
+    int zInt = pow(2, K) * p.z / _SpaceLength;
+    
+    //initializing the new point
+    int3 sfcPoint = int3(xInt, yInt, zInt);
+    _SFCPoints[8 * id.x + id.y] = sfcPoint;
+}
+
+//This is some dirty dirty bit-hacking nonsense and I'm not sure what I'm doing here.
+[numthreads(8,8,1)]
+void CSInterleaveBits(uint3 id : SV_DispatchThreadID)
+{
+    //get coordinate
+    int coordinate = 8 * id.x + id.y;
+    
+    if ((uint) coordinate > _NumberOfParticles) return;
+    
+    int3 temp = _SFCPoints[coordinate];
+    
+    //break it up into individual values
+    int x = temp.x;
+    int y = temp.y;
+    int z = temp.z;
+    
+    //The mask is used to isolate the last 2 bits of each number.
+    uint mask = (1 << 2) - 1;
+    
+    //Isolate last two bits
+    uint lastXBits = x & mask;
+    uint lastYBits = y & mask;
+    uint lastZBits = z & mask;
+    
+    //Shift everything into position for combining together
+    lastXBits << 4;
+    lastYBits << 2;
+    lastZBits << 0;
+
+    //Interleave the first 2 bits of each value
+    uint Result = 0;
+    
+    Result |= lastXBits;
+    Result |= lastYBits;
+    Result |= lastZBits;
+    
+    _InterleavedPoints[coordinate] = Result;
+}
+
+[numthreads(8,1,1)]
+void CSOctreeConstruction(uint3 id : SV_DispatchThreadID)
+{
+    int coordinate = 8 * id.x + id.y;
+}
+
+// "arcane bit-swizzling" -Nvidia Developer technical blog
+uint expandBits(int v)
+{
+    v = (v * 0x00010001u) & 0xFF0000FFu;
+    v = (v * 0x00000101u) & 0x0F00F00Fu;
+    v = (v * 0x00000011u) & 0xC30C30C3u;
+    v = (v * 0x00000005u) & 0x49249249u;
+    return v;
+}
+
+uint Morton3D(float3 position)
+{
+    position.x = min(max(position.x * 1024.0, 0.0f), 1023.0);
+    position.y = min(max(position.y * 1024.0, 0.0f), 1023.0);
+    position.z = min(max(position.z * 1024.0, 0.0f), 1023.0);
+    
+    uint xx = expandBits((uint) position.x);
+    uint yy = expandBits((uint) position.y);
+    uint zz = expandBits((uint) position.z);
+    
+    return xx * 4 + yy * 2 + zz;
+}

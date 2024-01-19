@@ -1,0 +1,108 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+#pragma kernel GenerateVerticies
+
+#define PI 3.14159265358979323846264338327950288419
+
+uint _NumSegments;
+float _Radius;
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+RWStructuredBuffer<float3> _VertexPositions;
+RWStructuredBuffer<int> _Indices;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+
+    Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+}
+
+[numthreads(64,64,1)]
+void GenerateVerticies(uint3 id : SV_DispatchThreadID)
+{
+    //Check if thread is running within _NumSegments, else return 
+    if ((int) id.x > _NumSegments || (int) id.y > _NumSegments)
+    {
+        return;
+    }
+    
+    //Our working variable
+    float3 temp = { 0.0f, 0.0f, 0.0f };
+    
+    //Get theta and phi step, used to calculate the x, y, and z, positioning of temp
+    float thetaStep = (2 * PI) / _NumSegments;
+    float phiStep = PI / _NumSegments;
+        
+    float phi = id.x * phiStep;
+    float theta = id.y * thetaStep;
+    
+    //If this is the very first vertex, pass it into the RWBuffer as the zero vector and return
+    if(phi == 0.0f && theta == 0.0f)
+    {
+        int indexPosition = 64 * id.x + id.y;
+        _VertexPositions[indexPosition] = temp;
+    }
+    else
+    {
+        //Set the final values for temp
+        temp.x = _Radius * sin(phi) * sin(theta);
+        temp.y = _Radius * cos(phi);
+        temp.z = _Radius * sin(phi) * cos(theta);
+
+        int indexPosition = 64 * id.x + id.y;
+        _VertexPositions[indexPosition] = temp;
+    }
+    return;
+}
+
+[numthreads(64, 64, 1)]
+void GenerateIndicies(uint3 id : SV_DispatchThreadID)
+{
+    //Check if thread is running within _NumSegments, else return 
+    if ((int) id.x > _NumSegments || (int) id.y > _NumSegments)
+    {
+        return;
+    }
+    
+    int start = 1;
+    int ringVertexCount = _NumSegments + 1;
+    
+    int indexPosition = 64 * id.x + id.r;
+    
+    if (id.x < (_NumSegments - 2));
+    {
+        _Indices[indexPosition] = start + id.x * ringVertexCount + id.y;
+        _Indices[indexPosition + 1] = start + (id.x + 1) * ringVertexCount + id.y;
+        _Indices[indexPosition + 2] = start + id.x * ringVertexCount + (id.y + 1);
+        _Indices[indexPosition + 3] = start + id.x * ringVertexCount + (id.y + 1);
+        _Indices[indexPosition + 4] = start + (id.x + 1) * ringVertexCount + id.y;
+        _Indices[indexPosition + 5] = start + (id.x + 1) * ringVertexCount + (id.y + 1);
+    }
+    
+    if (id.x < _NumSegments)
+    {
+        _Indices[indexPosition + 6] = 0;
+        _Indices[indexPosition + 7] = id.x + 1;
+        _Indices[indexPosition + 8] = id.x + 2;
+    }
+    
+    uint stride;
+    int number;
+    _VertexPositions.GetDimensions(number, stride);
+    
+    int bottomInt = number - 1;
+    int bottomStart = bottomInt - ringVertexCount;
+    
+    if(id.x >= bottomStart && id.x < bottomInt)
+    {
+        _Indices[indexPosition + 9] = bottomInt;
+        _Indices[indexPosition + 10] = id.x + 1;
+        _Indices[indexPosition + 11] = id.x;
+    }
+}
+
